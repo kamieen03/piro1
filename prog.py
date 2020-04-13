@@ -5,12 +5,48 @@ import numpy as np
 import sys
 import os
 
+DEBUG = False
+
+def rotate_to_common(img, h, w):
+    upper = np.count_nonzero(img[:5,:])/w
+    lower = np.count_nonzero(img[-5:,:])/w
+    left  = np.count_nonzero(img[:,:5])/h
+    right = np.count_nonzero(img[:,-5:])/h
+    minimal = min([upper, lower, left, right])
+    if DEBUG:
+        print(f'  {upper:.2} \
+                \n{left:.2}  {right:.2}\
+            \n    {lower:.2}')
+    if minimal != upper:
+        if minimal == lower:
+            angle = -180
+        elif minimal == left:
+            angle = 270
+        elif minimal == right:
+            angle = 90
+
+        H,W = img.shape
+        size = max(H,W)
+        new_img = np.zeros((size, size), dtype=np.uint8)
+        new_img[size//2-H//2:size//2-H//2+H, size//2-W//2:size//2-W//2+W] = img
+        img = new_img
+        H,W = img.shape
+
+        M = cv2.getRotationMatrix2D(tuple([W//2, H//2]),angle,1)
+        p = (W, H)
+        img = cv2.warpAffine(img, M, p)
+        nz = cv2.findNonZero(img)
+        x, y, w, h = cv2.boundingRect(nz)
+        img = img[max(0, y-3):y+h, x:x+w]
+    return img
+
 def contour(img, name):
     print("Processing ", name)
     # rotate so sides of rectangle are straight
     H,W = img.shape
-    new_img = np.zeros((int(1.5*H),int(1.5*W)), dtype=np.uint8)
-    new_img[H//4-1:H//4-1+H, W//4-1:W//4-1+W] = img
+    size = max(H,W)+10
+    new_img = np.zeros((size,size), dtype=np.uint8)
+    new_img[size//2-H//2:size//2-H//2+H, size//2-W//2:size//2-W//2+W] = img
     img = new_img
     img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     _rect = cv2.minAreaRect(cnt[0])
@@ -20,47 +56,24 @@ def contour(img, name):
     M = cv2.getRotationMatrix2D(tuple(center),90+angle,1)
     size = max(img.shape)
     img = cv2.warpAffine(img, M, (size,size))
+
+    nz = cv2.findNonZero(img)
+    x, y, w, h = cv2.boundingRect(nz)
+    img = cv2.Canny(img,50,150,apertureSize = 3)
+    img = img[y:y+h, x:x+w]
+
+    img = rotate_to_common(img, h, w)
+
+
+    if img[:10, :].sum() > img[-10:,:].sum():
+        img = img[10:,:]
+    else:
+        img = img[:-10,:]
+    img = img[:,3:-3]
     nz = cv2.findNonZero(img)
     x, y, w, h = cv2.boundingRect(nz)
     img = img[y:y+h, x:x+w]
-
-    # rotate to common orientation
-    if np.count_nonzero(img[:, 15]) > (h - 3) or np.count_nonzero(img[:, -15]) > (h - 3):
-        M = cv2.getRotationMatrix2D(tuple([h//2, w//2]),90,1)
-        p = (2*h, h//2 +w//2 + 1)
-        img = cv2.warpAffine(img, M, p)
-        nz = cv2.findNonZero(img)
-        x, y, w, h = cv2.boundingRect(nz)
-        img = img[y:y+h, x:x+w]
-    show(img)
-
-    #show(img)
-    #edges = cv2.Canny(img,50,150,apertureSize = 3)
-    #show(edges)
-    #lines = cv2.HoughLinesP(edges, 3, 3*np.pi/180, 50)
-    #H,W = edges.shape
-    #out = np.zeros((H,W,3), dtype=np.uint8)
-    #for line in lines:
-    #    x1,y1,x2,y2 = line[0]
-    #    cv2.line(out,(x1,y1),(x2,y2),(0,255,0),2)
-    #show(out)
-
-    # get contour
-    img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    img_cnt = np.zeros(img.shape, np.uint8)
-    img_cnt = cv2.drawContours(img_cnt, cnt, -1, 255, 1)
-
-    # cut out the straight lines and cut the picture to what is left
-    if img_cnt[:10, :].sum() > img_cnt[-10:,:].sum():
-        img_cnt = img_cnt[10:,:]
-    else:
-        img_cnt = img_cnt[:-10,:]
-    img_cnt = img_cnt[:,3:-3]
-    nz = cv2.findNonZero(img_cnt)
-    x, y, w, h = cv2.boundingRect(nz)
-    img_cnt = img_cnt[y:y+h, x:x+w]
-
-    return img_cnt
+    return img
 
 def rot_180(img):
     h, w = img.shape
