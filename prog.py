@@ -7,16 +7,22 @@ import os
 
 def contour(img):
     # rotate so sides of rectangle are straight
+    H,W = img.shape
+    new_img = np.zeros((int(1.5*H),int(1.5*W)), dtype=np.uint8)
+    new_img[H//4-1:H//4-1+H, W//4-1:W//4-1+W] = img
+    img = new_img
     img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     _rect = cv2.minAreaRect(cnt[0])
     angle = _rect[2]
     _box = cv2.boxPoints(_rect)
     center = sum(_box)/4
     M = cv2.getRotationMatrix2D(tuple(center),90+angle,1)
-    img = cv2.warpAffine(img, M, img.shape[::-1])
+    size = max(img.shape)
+    img = cv2.warpAffine(img, M, (size,size))
     nz = cv2.findNonZero(img)
     x, y, w, h = cv2.boundingRect(nz)
-    img = img[y:y+h, x:x+w]
+    img = img[y-5:y+h+5, x-5:x+w+5] #TODO: might be out of image bound
+    show(img)
 
     # rotate to common orientation
     h, w = img.shape
