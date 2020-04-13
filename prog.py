@@ -5,7 +5,8 @@ import numpy as np
 import sys
 import os
 
-def contour(img):
+def contour(img, name):
+    print("Processing ", name)
     # rotate so sides of rectangle are straight
     H,W = img.shape
     new_img = np.zeros((int(1.5*H),int(1.5*W)), dtype=np.uint8)
@@ -21,18 +22,28 @@ def contour(img):
     img = cv2.warpAffine(img, M, (size,size))
     nz = cv2.findNonZero(img)
     x, y, w, h = cv2.boundingRect(nz)
-    img = img[y-5:y+h+5, x-5:x+w+5] #TODO: might be out of image bound
-    show(img)
+    img = img[y:y+h, x:x+w]
 
     # rotate to common orientation
-    h, w = img.shape
-    if h > w:
+    if np.count_nonzero(img[:, 15]) > (h - 3) or np.count_nonzero(img[:, -15]) > (h - 3):
         M = cv2.getRotationMatrix2D(tuple([h//2, w//2]),90,1)
         p = (2*h, h//2 +w//2 + 1)
         img = cv2.warpAffine(img, M, p)
         nz = cv2.findNonZero(img)
         x, y, w, h = cv2.boundingRect(nz)
         img = img[y:y+h, x:x+w]
+    show(img)
+
+    #show(img)
+    #edges = cv2.Canny(img,50,150,apertureSize = 3)
+    #show(edges)
+    #lines = cv2.HoughLinesP(edges, 3, 3*np.pi/180, 50)
+    #H,W = edges.shape
+    #out = np.zeros((H,W,3), dtype=np.uint8)
+    #for line in lines:
+    #    x1,y1,x2,y2 = line[0]
+    #    cv2.line(out,(x1,y1),(x2,y2),(0,255,0),2)
+    #show(out)
 
     # get contour
     img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -98,12 +109,12 @@ def compute_accuracy(result, path):
 def main():
     path = f'daneA/set{sys.argv[1]}/'
     # get image names
-    imgs = sorted([img for img in os.listdir(path) if img[-4:] == '.png'],
+    img_names = sorted([img for img in os.listdir(path) if img[-4:] == '.png'],
             key = lambda s: int(s.split('.')[0]))
     # read images into memory
-    imgs = [cv2.imread(path+img, 0) for img in imgs]
+    imgs = [cv2.imread(path+img, 0) for img in img_names]
     # get contours of images
-    imgs = [contour(img) for img in imgs]
+    imgs = [contour(img, name) for (img, name) in zip(imgs, img_names)]
     # resize images to common size
     max_h = max([img.shape[0] for img in imgs])
     max_w = max([img.shape[1] for img in imgs])
