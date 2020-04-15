@@ -53,6 +53,75 @@ def good_line(img,x1,x2,y1,y2):
         return True, max(left,right)
     return False, 0
 
+def intersection(line1, line2):
+    x1,x2,y1,y2 = line1
+    x3,x4,y3,y4 = line2
+    denom = (x1-x2)*(y3-y4)-(y1-y2)*(x3-x4)
+    if abs(denom) < 0.001:
+        return -1, -1
+    x = ((x1*y2-y1*x2)*(x3-x4) - (x1-x2)*(x3*y4-y3*x4))/denom
+    y = ((x1*y2-y1*x2)*(y3-y4) - (y1-y2)*(x3*y4-y3*x4))/denom
+    x, y = int(x), int(y)
+    return x, y
+
+def three_line(lines_blens, img):
+    '''
+    https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
+    '''
+    H,W = img.shape
+    valid = lambda x,y: x >= 0 and x < W and y >= 0 and y < H
+
+    if len(lines_blens) < 3:
+        return False
+    elif len(lines_blens) == 3:
+        l0 = lines_blens[0][0]
+        l1 = lines_blens[1][0]
+        l2 = lines_blens[2][0]
+        i0 = intersection(l0, l1)
+        i1 = intersection(l1, l2)
+        i2 = intersection(l2, l0)
+        if not valid(*i0): return [l2, l0, l1, i2, i1] #[base, side1, side2]
+        if not valid(*i1): return [l0, l2, l1, i2, i0]
+        if not valid(*i2): return [l1, l2, l0, i1, i0]
+        x, y = i0
+        ngbh = img[y-5:y+5, x-5:x+5] #TODO: unsafe
+        if np.sum(ngbh) == 0:
+            return [l2,l0,l1, i2, i2]
+        x, y = i1
+        ngbh = img[y-5:y+5, x-5:x+5] #TODO: unsafe
+        if np.sum(ngbh) == 0:
+            return [l0,l2,l1, i2, i0]
+        return [l1, l2, l0, i1,i0]
+    else:
+        base = max(lines_blens, key = lambda line_blen: line_blen[1])[0]
+        x1, x2, y1, y2 = base
+        new_lines_i = []
+        for line, _ in lines_blens:
+            if line == base: continue
+            x, y = intersection(base, line)
+            x, y = int(x), int(y)
+            if valid(x,y):
+                ngbh = img[y-5:y+5, x-5:x+5] #TODO: unsafe
+                if np.sum(ngbh) > 0:
+                    x3,x4,y3,y4 = line
+                    v1 = np.array([x2-x1, y2-y1])
+                    v2 = np.array([x4-x3, y4-y3])
+                    cosine = v1.dot(v2)/(np.linalg.norm(v1)*np.linalg.norm(v2))
+                    print(v1, v2, line, cosine)
+                    if abs(cosine) < 1/2:
+                        new_lines_i.append((line, np.array([x,y]), np.sum(ngbh)))
+        if len(new_lines_i) < 2:
+            return False
+            #randoms = [line for line, _ in lines_blens if line != base]
+            #return [base, randoms[0], randoms[1]] 
+        new_lines_i = sorted(new_lines_i, key = lambda lps: lps[2])[::-1]
+        side1, i1 = new_lines_i[0][0], new_lines_i[0][1]
+        if np.linalg.norm(new_lines_i[1][1] - new_lines_i[0][1]) > 50 or len(new_lines_i) < 3:
+            side2, i2 = new_lines_i[1][0], new_lines_i[1][1]
+        else:
+            side2, i2 = new_lines_i[2][0], new_lines_i[2][1]
+        return [base, side1, side2, i1, i2]
+            
 
 def polar2cartesian(rho, theta):
     a = np.cos(theta)
@@ -65,6 +134,26 @@ def polar2cartesian(rho, theta):
     y2 = int(y0 - 1000*(a))
     return [x1,x2,y1,y2]
 
+def get_intersection(img, side, base_int):
+    x1,x2,y1,y2 = side
+    dir = np.array([x2-x1, y2-y1])
+    dir = 15 * dir/ np.linalg.norm(dir)
+    p = dir + base_int
+    x, y = int(p[0]), int(p[1])
+    #img = np.array(img * 0.25, dtype=np.uint8)
+    #img[y-5:y+5, x-5:x+5] = 255
+    #show(img)
+    print('sum', np.sum(img[y-5:y+5, x-5:x+5]))
+    if np.sum(img[y-5:y+5, x-5:x+5]) == 0:
+        dir = -1 * dir
+    dir = dir/3
+    p = base_int
+    while True:
+        p = p + dir
+        x, y = int(p[0]), int(p[1])
+        s = np.sum(img[y-5:y+5, x-5:x+5])
+        if s == 0:
+            return (x,y)
 
 def get_border_points(img):
     edges = cv2.Canny(img,50,150,apertureSize = 3)
@@ -78,46 +167,15 @@ def get_border_points(img):
         if good:
             lines_blens.append((line,border_len))
             print(line,border_len)
-
-    return [line for line,blen in lines_blens]
-
-    # Find base line - it is the logest detected line 
-    base_line_idx = np.argmax([calc_length(line) for line in lines])
-    base_line = lines[base_line_idx]
-
-    # Find sides - check angle between lines and distance between endpoints
-    a, b = np.split(base_line, 2)
-    side1 = get_side_line(a, base_line, lines)
-    side2 = get_side_line(b, base_line, lines)
-
-    return np.array([base_line, side1,side2])
-
-
-def get_side_line(e, base_line, lines):
-    angle_acc = 5
-    side_lines = [line for line in lines \
-        if (90 - angle_acc) < (abs(calc_angle(line) - calc_angle(base_line))) < (90 + angle_acc) and is_in_range(e, line)]
-
-    return side_lines[np.argmax([calc_length(line) for line in side_lines])]
-
-
-def is_in_range(e, line):
-    r = 60
-    square_range = math.pow(r, 2)
-    return math.pow(line[0]-e[0], 2) + math.pow(line[1]-e[1], 2) <= square_range \
-        or math.pow(line[2]-e[0], 2) + math.pow(line[3]-e[1], 2) <= square_range
-
-
-def calc_angle(l):
-    angle = math.atan2(l[1] - l[3], l[0] - l[2])
-    if angle < 0:
-        angle = angle + 2*np.pi
-    return angle * 180/np.pi
-
-
-def calc_length(line):
-    x1, y1, x2, y2 = line
-    return math.sqrt(((x1-x2)**2)+((y1-y2)**2))
+    tl = three_line(lines_blens, img)
+    if tl:
+        base, side1, side2 = tl[:3]
+        i1, i2 = tl[3:]
+        i3 = get_intersection(img, side1, i1)
+        i4 = get_intersection(img, side2, i2)
+        print(i3, i4, i1, i2)
+        return [i3, i4, i1, i2]
+    return False
 
 
 def rotate_to_common(img, h, w):
@@ -174,20 +232,28 @@ def contour(img, name):
     img = cv2.warpAffine(img, M, (size,size))
 
     # Szukanie podstawy i boków
-    #img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    #print(len(cnt[0]))
-    lines = get_border_points(img)
-    img = np.array(img * 0.25, dtype=np.uint8)
-    for x1,x2,y1,y2 in lines:
-        cv2.line(img,(x1,y1),(x2,y2),255,1)
+    points = get_border_points(img)
+    H,W = img.shape
+    nz = cv2.findNonZero(img)
+    x, y, w, h = cv2.boundingRect(nz)
+    img = rotate_to_common(img, h, w)
     show(img)
+    if points:
+        nz = cv2.findNonZero(img)
+        x, y, w, h = cv2.boundingRect(nz)
+        points = np.float32(points)
+        pts2 = np.float32([[W//2, H//2], [W//2+w, H//2], [W//2, H//2+h], [W//2+w, H//2+h]])
+        print(points)
+        print(pts2)
+        matrix = cv2.getPerspectiveTransform(points, pts2)
+        img = cv2.warpPerspective(img, matrix, (W+W//2, H+H//2))
+        show(img)
 
     nz = cv2.findNonZero(img)
     x, y, w, h = cv2.boundingRect(nz)
     img = cv2.Canny(img,50,150,apertureSize = 3)
     img = img[y:y+h, x:x+w]
 
-    img = rotate_to_common(img, h, w)
 
 
     if img[:10, :].sum() > img[-10:,:].sum():
@@ -230,11 +296,12 @@ def compare(chars, rev_chars):
     norms = [np.linalg.norm(vec) for vec in chars]
     rev_norms = [np.linalg.norm(vec) for vec in rev_chars]
     for i in range(len(chars)):
-        for j in range(i):
-            score1 = chars[i].dot(chars[j])/(norms[i]*norms[j])
+        for j in range(len(chars)):
+            if i == j: continue
+            if norms[i] < 1 or norms[j] < 1: continue
+            score1 = chars[i][::-1].dot(chars[j])/(norms[i]*norms[j])
             score2 = rev_chars[i].dot(chars[j])/(rev_norms[i]*norms[j])
             similarity_mat[i][j] = max(score1, score2)
-            similarity_mat[j][i] = similarity_mat[i][j]
     return similarity_mat
 
 
