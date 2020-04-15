@@ -22,6 +22,38 @@ def cluster_lines(lines):
             new_lines.append(line)
     return new_lines
 
+def good_line(img,x1,x2,y1,y2):
+    H,W = img.shape
+    valid = lambda x,y: x >= 0 and x < W and y >= 0 and y < H
+    SAMPLES = 500
+
+    dir = np.array([x2-x1, y2-y1])
+    dir = dir / SAMPLES
+    normal = np.array([y2-y1, -(x2-x1)])
+    normal = normal / np.linalg.norm(normal)
+
+    base = np.array([x1, y1])
+    left, right = 0, 0
+    for i in range(SAMPLES):
+        base = base + dir
+        if not valid(base[0],base[1]):
+            continue
+        for j in range(5,8):
+            x,y = base+j*normal
+            if not valid(x,y): continue
+            x,y = int(x),int(y)
+            left += img[y,x]
+            x,y = base-j*normal
+            if not valid(x,y): continue
+            x,y = int(x),int(y)
+            right += img[y,x]
+    if left == 0 or right == 0:
+        return True, max(left,right)
+    if left/right > 100 or right/left > 100:
+        return True, max(left,right)
+    return False, 0
+
+
 def polar2cartesian(rho, theta):
     a = np.cos(theta)
     b = np.sin(theta)
@@ -33,15 +65,21 @@ def polar2cartesian(rho, theta):
     y2 = int(y0 - 1000*(a))
     return [x1,x2,y1,y2]
 
+
 def get_border_points(img):
     edges = cv2.Canny(img,50,150,apertureSize = 3)
     lines = np.array(cv2.HoughLines(edges,1,np.pi/180,50))
     lines = lines[:, 0]
     lines = [polar2cartesian(rho,theta) for rho,theta in lines]
     lines = cluster_lines(lines)
-    for l in lines:
-        print(l)
-    return lines
+    lines_blens = []
+    for line in lines:
+        good, border_len = good_line(img, *line)
+        if good:
+            lines_blens.append((line,border_len))
+            print(line,border_len)
+
+    return [line for line,blen in lines_blens]
 
     # Find base line - it is the logest detected line 
     base_line_idx = np.argmax([calc_length(line) for line in lines])
@@ -141,7 +179,7 @@ def contour(img, name):
     lines = get_border_points(img)
     img = np.array(img * 0.25, dtype=np.uint8)
     for x1,x2,y1,y2 in lines:
-        cv2.line(img,(x1,y1),(x2,y2),255,3)
+        cv2.line(img,(x1,y1),(x2,y2),255,1)
     show(img)
 
     nz = cv2.findNonZero(img)
