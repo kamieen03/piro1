@@ -86,11 +86,16 @@ def rotate_to_common(img, h, w):
 
 def contour(img, name):
     print("Processing ", name)
-    # rotate so sides of rectangle are straight
+
+    # Szukanie podstawy i boków
     preview = np.zeros(img.shape)
     edges = cv2.Canny(img,50,150,apertureSize = 3)
     l = get_border_points(edges)
 
+    for x1, y1, x2, y2 in l:
+        cv2.line(preview, (x1, y1), (x2, y2), 255, 5)
+
+    # rotate so sides of rectangle are straight
     H,W = img.shape
     size = max(H,W)+10
     new_img = np.zeros((size,size), dtype=np.uint8)
@@ -100,21 +105,6 @@ def contour(img, name):
     _rect = cv2.minAreaRect(cnt[0])
     angle = _rect[2]
     _box = cv2.boxPoints(_rect)
-
-    #-----
-    # x1, y1, x2, y2 = base_line[0]
-    # cv2.line(preview, (x1, y1), (x2, y2), 255, 5)
-
-
-
-
-
-    # print(lens)
-
-    for x1, y1, x2, y2 in l:
-            cv2.line(preview, (x1, y1), (x2, y2), 255, 5)
-            # print(calc_angle(line[0]))
-    show(preview)
 
     center = sum(_box)/4
     M = cv2.getRotationMatrix2D(tuple(center),90+angle,1)
@@ -156,7 +146,6 @@ def show(img):
 
 def characteristic(contour):
     # get indices of first nonzero pixel in each column
-    # show(contour)
     return contour.argmax(0)
 
 
@@ -193,7 +182,7 @@ def compute_accuracy(result, path):
 
 
 def main():
-    path = f'daneA/set{sys.argv[1]}/'
+    path = f'daneB/set{sys.argv[1]}/'
     # get image names
     img_names = sorted([img for img in os.listdir(path) if img[-4:] == '.png'],
             key = lambda s: int(s.split('.')[0]))
