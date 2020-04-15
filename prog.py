@@ -5,12 +5,43 @@ import numpy as np
 import sys
 import os
 import math
+from sklearn.cluster import DBSCAN
 
 DEBUG = False
 
-def get_border_points(edges):
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, 15, maxLineGap=30)
+def cluster_lines(lines):
+    db = DBSCAN(eps=50, min_samples=1).fit(lines)
+    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+    core_samples_mask[db.core_sample_indices_] = True
+    labels = db.labels_
+    new_lines = []
+    used_labs = []
+    for line, lab in zip(lines, labels):
+        if lab not in used_labs:
+            used_labs.append(lab)
+            new_lines.append(line)
+    return new_lines
+
+def polar2cartesian(rho, theta):
+    a = np.cos(theta)
+    b = np.sin(theta)
+    x0 = a*rho
+    y0 = b*rho
+    x1 = int(x0 + 1000*(-b))
+    y1 = int(y0 + 1000*(a))
+    x2 = int(x0 - 1000*(-b))
+    y2 = int(y0 - 1000*(a))
+    return [x1,x2,y1,y2]
+
+def get_border_points(img):
+    edges = cv2.Canny(img,50,150,apertureSize = 3)
+    lines = np.array(cv2.HoughLines(edges,1,np.pi/180,50))
     lines = lines[:, 0]
+    lines = [polar2cartesian(rho,theta) for rho,theta in lines]
+    lines = cluster_lines(lines)
+    for l in lines:
+        print(l)
+    return lines
 
     # Find base line - it is the logest detected line 
     base_line_idx = np.argmax([calc_length(line) for line in lines])
@@ -85,15 +116,8 @@ def rotate_to_common(img, h, w):
     return img
 
 def contour(img, name):
-    print("Processing ", name)
+    print("\nProcessing ", name)
 
-    # Szukanie podstawy i boków
-    preview = np.zeros(img.shape)
-    edges = cv2.Canny(img,50,150,apertureSize = 3)
-    l = get_border_points(edges)
-
-    for x1, y1, x2, y2 in l:
-        cv2.line(preview, (x1, y1), (x2, y2), 255, 5)
 
     # rotate so sides of rectangle are straight
     H,W = img.shape
@@ -107,9 +131,18 @@ def contour(img, name):
     _box = cv2.boxPoints(_rect)
 
     center = sum(_box)/4
-    M = cv2.getRotationMatrix2D(tuple(center),90+angle,1)
+    M = cv2.getRotationMatrix2D(tuple(center),angle,1)
     size = max(img.shape)
     img = cv2.warpAffine(img, M, (size,size))
+
+    # Szukanie podstawy i boków
+    #img, cnt, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #print(len(cnt[0]))
+    lines = get_border_points(img)
+    img = np.array(img * 0.25, dtype=np.uint8)
+    for x1,x2,y1,y2 in lines:
+        cv2.line(img,(x1,y1),(x2,y2),255,3)
+    show(img)
 
     nz = cv2.findNonZero(img)
     x, y, w, h = cv2.boundingRect(nz)
